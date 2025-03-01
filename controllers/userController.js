@@ -152,8 +152,8 @@ export const createApiKey = async (req, res) => {
       return encrypted;
     };
 
-    const encryptedEmail = encryptEmail(email);
-    const encryptedPassword = encryptEmail(emailPassword);
+    const encryptedEmail = email;
+    const encryptedPassword = emailPassword;
     
     const userId = req.user.userId;
     const key = crypto.randomBytes(16).toString("hex");

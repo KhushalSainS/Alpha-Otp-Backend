@@ -29,8 +29,18 @@ export const sendOtp = async (req, res) => {
   // Expecting: recipient (phone or email) and channel ("sms" or "email")
   const { recipient, channel = "email" } = req.body;
   
+  // Log the incoming request
+  console.log(`[SendOTP] Received request:`, {
+    recipient,
+    channel,
+    apiKeyId: req.user?.apiKeyId,
+    userId: req.user?.userId,
+    timestamp: new Date().toISOString()
+  });
+  
   // Add validation for required parameters
   if (!recipient) {
+    console.error('[SendOTP] Error: Missing recipient');
     return res.json({
       success: false,
       message: "Recipient is required"
@@ -85,27 +95,31 @@ export const sendOtp = async (req, res) => {
         let emailUser = apiKey.emailConfig.email;
         let emailPass = apiKey.emailConfig.password;
         
-        // Only decrypt if IV exists (meaning the data is encrypted)
-        if (apiKey.emailConfig.iv) {
-          console.log("Decrypting email credentials...");
-          try {
-            emailUser = decryptEmailConfig(emailUser, apiKey.emailConfig.iv);
-            emailPass = decryptEmailConfig(emailPass, apiKey.emailConfig.iv);
-            console.log(`Email decryption successful for: ${emailUser.slice(0, 5)}...`);
-          } catch (decryptError) {
-            console.error("Decryption error:", decryptError);
-            // If decryption fails, try using the stored values directly
-            console.log("Falling back to stored credentials without decryption");
-            emailUser = apiKey.emailConfig.email;
-            emailPass = apiKey.emailConfig.password;
-          }
-        }
+        // // Only decrypt if IV exists (meaning the data is encrypted)
+        // if (apiKey.emailConfig.iv) {
+        //   console.log("Decrypting email credentials...");
+        //   try {
+        //     emailUser = decryptEmailConfig(emailUser, apiKey.emailConfig.iv);
+        //     emailPass = decryptEmailConfig(emailPass, apiKey.emailConfig.iv);
+        //     console.log(`Email decryption successful for: ${emailUser.slice(0, 5)}...`);
+        //     console.loglog(emailUser, emailPass);
+        //   } catch (decryptError) {
+        //     console.error("Decryption error:", decryptError);
+        //     // If decryption fails, try using the stored values directly
+        //     console.log("Falling back to stored credentials without decryption");
+        //     emailUser = apiKey.emailConfig.email;
+        //     emailPass = apiKey.emailConfig.password;
+        //   }
+        // }
         
         console.log(`Attempting to send email using ${emailUser} via ${apiKey.emailConfig.service}`);
         
         // Configure nodemailer with stored credentials
         const transporter = nodemailer.createTransport({
-          service: apiKey.emailConfig.service || "gmail",
+          service: apiKey.emailConfig.service || "Gmail",
+          host: 'smtp.gmail.com',
+          port: 465,
+          secure: true, 
           auth: {
             user: emailUser,
             pass: emailPass
@@ -139,9 +153,10 @@ export const sendOtp = async (req, res) => {
         const info = await transporter.sendMail(mailOptions);
         console.log("Email sent successfully:", info.messageId);
         
-        // Update OTP log to reflect success
-        otpLog.status = "sent";
+        // Update OTP log to reflect sent status (not delivered)
+        otpLog.status = "sent";  // Changed from "delivered" to "sent"
         await otpLog.save();
+        console.log(`OTP status updated to 'sent' for ${recipient}`);
         
       } catch (emailError) {
         console.error("Error sending email:", emailError);
@@ -153,6 +168,7 @@ export const sendOtp = async (req, res) => {
         // Provide more specific error messages
         const errorMessage = emailError.message.toLowerCase();
         
+        // Authentication errors
         if (errorMessage.includes("535") || 
             errorMessage.includes("534") ||
             errorMessage.includes("authentication failed") || 
@@ -160,26 +176,59 @@ export const sendOtp = async (req, res) => {
             errorMessage.includes("invalid login") ||
             errorMessage.includes("invalid credentials")) {
           
-          if (apiKey.emailConfig.service && apiKey.emailConfig.service.toLowerCase() === "gmail") {
+          if (apiKey.emailConfig.service?.toLowerCase() === "gmail") {
+            let specificError = "Unknown Gmail authentication error";
+            let specificSolution = "";
+
+            if (errorMessage.includes("535-5.7.8")) {
+              specificError = "Username and Password not accepted";
+              specificSolution = "Verify your Gmail address and App Password";
+            } else if (errorMessage.includes("534-5.7.9")) {
+              specificError = "OAuth 2.0 authentication required";
+              specificSolution = "Use App Password instead of regular password";
+            } else if (errorMessage.includes("535-5.7.1")) {
+              specificError = "Invalid credentials or access blocked";
+              specificSolution = "Check if less secure app access is enabled";
+            }
+
             return res.json({
               success: false,
-              message: "Gmail authentication failed. This is likely due to one of these issues:",
-              details: [
-                "1. The App Password may have been entered incorrectly (it should be 16 characters without spaces)",
-                "2. 2-Step Verification may not be enabled on your Gmail account",
-                "3. Your Google Account security settings may be blocking the login attempt",
-                "4. The encryption/decryption process for your credentials may have issues"
+              message: "Gmail authentication failed",
+              error: specificError,
+              solution: specificSolution,
+              requiredSteps: [
+          "1. Enable 2-Step Verification in Google Account",
+          "2. Generate new App Password from Google Account Security",
+          "3. Use the 16-character App Password without spaces",
+          "4. Make sure you're using your full Gmail address"
               ],
-              troubleshooting: "Please try creating a new API key with a fresh App Password, ensuring no spaces are included",
-              error: errorMessage
+              moreInfo: "https://support.google.com/mail/answer/185833",
+              originalError: errorMessage
             });
-          } else {
+        } else if (errorMessage.includes("timeout") || errorMessage.includes("etimedout")) {
             return res.json({
               success: false,
-              message: "Email authentication failed",
+              message: "Connection timed out",
+              details: "Email server is not responding",
+              solution: "Try again later or check email server settings",
               error: errorMessage
             });
-          }
+        } else if (errorMessage.includes("certificate") || errorMessage.includes("ssl")) {
+            return res.json({
+              success: false,
+              message: "SSL/TLS Error",
+              details: "Secure connection failed",
+              solution: "Check email server SSL settings",
+              error: errorMessage
+            });
+        } else {
+            return res.json({
+              success: false,
+              message: "Email server error",
+              details: "Could not connect to email service",
+              error: errorMessage
+            });
+        }
         } else {
           return res.json({
             success: false,
@@ -215,21 +264,53 @@ export const sendOtp = async (req, res) => {
     });
     
   } catch (error) {
-    console.error("Error sending OTP:", error);
+    // Enhanced error logging
+    console.error('[SendOTP] Critical error:', {
+      error: error.message,
+      stack: error.stack,
+      recipient,
+      channel,
+      apiKeyId: req.user?.apiKeyId,
+      userId: req.user?.userId,
+      timestamp: new Date().toISOString()
+    });
+
+    // Categorize errors for better client feedback
+    let errorMessage = "Failed to send OTP";
+    if (error.code === 'ECONNREFUSED') {
+      errorMessage = "Email service connection failed. Please check your email configuration.";
+    } else if (error.code === 'ETIMEDOUT') {
+      errorMessage = "Request timed out. Please try again.";
+    } else if (error.message.includes('authentication')) {
+      errorMessage = "Email authentication failed. Please check your credentials.";
+    }
+
     return res.json({
       success: false,
-      message: "Failed to send OTP",
-      error: error.message
+      message: errorMessage,
+      error: error.message,
+      errorCode: error.code || 'UNKNOWN'
     });
   }
 };
 
 // VERIFY OTP
 export const verifyOtp = async (req, res) => {
-  // Expecting: recipient and otp in req.body
   const { recipient, otp } = req.body;
   
+  console.log(`[VerifyOTP] Verification attempt:`, {
+    recipient,
+    otp,  // Log full OTP during development/debugging
+    apiKeyId: req.user?.apiKeyId,
+    userId: req.user?.userId,
+    timestamp: new Date().toISOString()
+  });
+  
   if (!recipient || !otp) {
+    console.error('[VerifyOTP] Error: Missing required fields', {
+      hasRecipient: !!recipient,
+      hasOTP: !!otp
+    });
     return res.json({
       success: false,
       message: "Recipient and OTP are required"
@@ -237,63 +318,97 @@ export const verifyOtp = async (req, res) => {
   }
   
   try {
-    console.log(`Verifying OTP: ${otp} for recipient: ${recipient}`);
-    
-    // Find the most recent pending OTP for the recipient that is still valid
-    // AND is associated with the current user or API key
+    // First, find any OTP record for this recipient, regardless of status
+    const anyOtpLog = await OtpLog.findOne({
+      recipient,
+      apiKey: req.user.apiKeyId,
+      user: req.user.userId
+    }).sort({ sentAt: -1 });
+
+    if (!anyOtpLog) {
+      console.log(`No OTP found for recipient: ${recipient}`);
+      return res.json({
+        success: false,
+        message: "No OTP was generated for this recipient"
+      });
+    }
+
+    // Now check for valid OTP
     const otpLog = await OtpLog.findOne({
       recipient,
       otp,
-      status: "pending",
-      otpExpiry: { $gt: new Date() },
-      apiKey: req.user.apiKeyId, // Add this check to ensure the OTP belongs to the current API key
-      user: req.user.userId // Add this check to ensure the OTP belongs to the current user
+      apiKey: req.user.apiKeyId,
+      user: req.user.userId,
+      status: { $in: ["sent", "pending"] }  // Only check non-delivered/non-expired OTPs
     }).sort({ sentAt: -1 });
-    
+
     if (!otpLog) {
-      console.log("Invalid or expired OTP");
-      
-      // Check if an expired or invalid OTP attempt was made
-      const failedAttempt = await OtpLog.findOne({
+      // Try to find any OTP to give better error message
+      const anyOtp = await OtpLog.findOne({
         recipient,
         otp,
+        apiKey: req.user.apiKeyId,
         user: req.user.userId
       }).sort({ sentAt: -1 });
-      
-      // If OTP exists but is expired, provide a more specific error
-      if (failedAttempt && failedAttempt.otpExpiry < new Date()) {
+
+      if (!anyOtp) {
         return res.json({
           success: false,
-          message: "OTP has expired. Please request a new one.",
-          expired: true
+          message: "Invalid OTP code"
         });
       }
-      
-      // Track failed verification attempts (could implement rate limiting here)
-      console.log("Failed verification attempt");
-      
+
+      if (anyOtp.status === "delivered") {
+        return res.json({
+          success: false,
+          message: "This OTP has already been used"
+        });
+      }
+
+      if (anyOtp.status === "expired") {
+        return res.json({
+          success: false,
+          message: "This OTP has expired"
+        });
+      }
+    }
+
+    // Check if OTP is expired
+    if (otpLog.otpExpiry < new Date()) {
+      otpLog.status = "expired";
+      await otpLog.save();
       return res.json({
         success: false,
-        message: "Invalid OTP. Please check and try again."
+        message: "OTP has expired. Please request a new one.",
+        expired: true
       });
     }
-    
-    // Mark the OTP as verified (or delivered)
+
+    // Valid OTP found, mark it as delivered
     otpLog.status = "delivered";
     otpLog.deliveredAt = new Date();
     await otpLog.save();
     
-    console.log("OTP verified successfully");
+    console.log(`OTP verified successfully for recipient: ${recipient}`);
     return res.json({
       success: true,
       message: "OTP verified successfully",
       verified: true
     });
   } catch (error) {
-    console.error("Error verifying OTP:", error);
+    console.error('[VerifyOTP] Critical error:', {
+      error: error.message,
+      stack: error.stack,
+      recipient,
+      otpLength: otp?.length,
+      apiKeyId: req.user?.apiKeyId,
+      userId: req.user?.userId,
+      timestamp: new Date().toISOString()
+    });
+
     return res.json({
       success: false,
-      message: "Server error",
+      message: "Error verifying OTP",
       error: error.message
     });
   }

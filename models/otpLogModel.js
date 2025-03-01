@@ -31,7 +31,7 @@ const otpLogSchema = new mongoose.Schema({
   },
   status: { 
     type: String, 
-    enum: ['pending', 'delivered', 'failed', 'expired'], 
+    enum: ['pending', 'delivered', 'failed', 'expired', 'sent'], 
     default: 'pending' 
   },
   sentAt: { 
