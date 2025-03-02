@@ -43,13 +43,18 @@ app.use((req, res, next) => {
     next();
 });
 
-// Check if bcrypt is working properly
-try {
-  const bcrypt = await import('bcrypt');
-  console.log('bcrypt loaded successfully!');
-} catch (error) {
-  console.error('Error loading bcrypt:', error);
-}
+// Check if bcrypt is working properly in a safer way
+(async () => {
+  try {
+    const bcrypt = await import('bcrypt');
+    // Verify bcrypt is actually working
+    const testHash = await bcrypt.default.hash('test', 1);
+    console.log('bcrypt loaded and working successfully!');
+  } catch (error) {
+    console.error('Error with bcrypt:', error);
+    // Continue app execution even if bcrypt has issues
+  }
+})();
 
 // IMPORTANT: Order matters here - most specific routes first
 // Direct API access route must come before the general /api route

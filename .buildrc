@@ -1,0 +1,8 @@
+build:
+  env:
+    - key: NPM_CONFIG_PRODUCTION
+      value: "false"
+    - key: NODE_ENV
+      value: "production"
+    - key: NODE_OPTIONS
+      value: "--max_old_space_size=2048"
