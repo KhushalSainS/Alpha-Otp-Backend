@@ -10,9 +10,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "preinstall": "npm install -g node-gyp",
+    "preinstall": "echo 'Setting up environment...'",
     "build": "bash ./render-build.sh",
-    "postinstall": "node -e \"try { require('bcrypt'); console.log('bcrypt installed correctly') } catch(e) { console.log('Bcrypt not installed correctly, attempting to rebuild'); process.exit(0) }\""
+    "postinstall": "echo 'Installation completed'"
   },
   "keywords": [
     "404",
@@ -22,7 +22,7 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "bcrypt": "^5.1.1",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^16.3.1",

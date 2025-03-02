@@ -9,35 +9,29 @@ echo "Starting build process..."
 echo "Updating npm..."
 npm install -g npm@latest
 
-# Install build essentials if needed (for Linux environments)
-if [[ "$(uname)" == "Linux" ]]; then
-  echo "Linux detected, ensuring build tools are installed..."
-  apt-get update || echo "Skipping apt-get update, may not have permission"
-  apt-get install -y build-essential python3 || echo "Skipping apt install, may not have permission"
-fi
-
-# Install node-gyp globally
-echo "Installing node-gyp..."
-npm install -g node-gyp
-
-# Clean npm cache and reinstall dependencies
+# Clean npm cache 
 echo "Cleaning npm cache..."
 npm cache clean --force
 
-# Install dependencies, bypassing the problematic postinstall script for now
+# Remove node_modules if exists
+if [ -d "node_modules" ]; then
+  echo "Removing existing node_modules..."
+  rm -rf node_modules
+fi
+
+# Remove package-lock.json if exists
+if [ -f "package-lock.json" ]; then
+  echo "Removing package-lock.json..."
+  rm package-lock.json
+fi
+
+# Install dependencies
 echo "Installing dependencies..."
-npm ci --ignore-scripts || npm install --ignore-scripts
+npm install --no-optional
 
-# Explicitly install latest bcrypt
-echo "Installing latest bcrypt..."
-npm install bcrypt@latest --save --build-from-source
-
-# Rebuild bcrypt specifically
-echo "Rebuilding bcrypt..."
-npm rebuild bcrypt --build-from-source
-
-echo "Testing bcrypt installation..."
-node -e "try { const bcrypt = require('bcrypt'); console.log('✅ bcrypt version:', bcrypt.version || 'unknown'); console.log('✅ bcrypt installed successfully!'); } catch(e) { console.error('❌ bcrypt still not working:', e); process.exit(1); }"
+# Ensure bcryptjs is properly installed
+echo "Verifying bcryptjs installation..."
+node -e "try { require('bcryptjs'); console.log('✅ bcryptjs installed successfully!'); } catch(e) { console.error('❌ bcryptjs failed to load:', e); process.exit(1); }"
 
 echo "Build completed successfully"
 exit 0

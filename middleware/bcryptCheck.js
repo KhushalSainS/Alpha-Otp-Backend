@@ -1,16 +1,16 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 /**
  * This middleware checks if bcrypt is working correctly
- * If not, it will attempt to rebuild it
  */
 export const checkBcrypt = async (req, res, next) => {
   try {
     // Log bcrypt version if available
-    console.log('Using bcrypt version:', bcrypt.version || 'unknown');
+    console.log('Using bcryptjs');
     
     // Try to hash a simple string
-    const hash = await bcrypt.hash('test', 10);
+    const salt = await bcrypt.genSalt(10);
+    const hash = await bcrypt.hash('test', salt);
     const compare = await bcrypt.compare('test', hash);
     
     if (!compare) {
@@ -19,6 +19,7 @@ export const checkBcrypt = async (req, res, next) => {
     }
     
     // If we get here, bcrypt is working fine
+    console.log('bcryptjs validation successful');
     next();
   } catch (error) {
     console.error('bcrypt error:', error);
