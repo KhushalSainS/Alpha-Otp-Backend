@@ -11,7 +11,9 @@ import {
   getTransactions,
   getPlans,
   updatePlan,
-  getWallet
+  getWallet,
+  verifyPayment,
+  handlePaymentCallback
 } from "../controllers/userController.js";
 
 const userRouter = express.Router();
@@ -36,5 +38,10 @@ userRouter.post("/update-plan", authenticateJWT, updatePlan);
 
 // Protected routes - Wallet
 userRouter.get("/wallet", authenticateJWT, getWallet);
+
+// Payment verification routes
+userRouter.post("/verify-payment", authenticateJWT, verifyPayment);
+// Direct Razorpay callback (no authentication required as it comes from Razorpay)
+userRouter.get("/payment-callback", handlePaymentCallback);
 
 export default userRouter;

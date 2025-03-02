@@ -23,8 +23,7 @@ export const register = async (req, res) => {
     contactNumber,
     taxIdentificationNumber,
     businessPan,
-    registeredBusinessId,
-    senderConfig, // { email, emailPassword, phoneNumber }
+    registeredBusinessId,// { email, emailPassword, phoneNumber }
   } = req.body;
 
   try {
@@ -300,7 +299,6 @@ export const getApiKeys = async (req, res) => {
     });
   }
 };
-
 // CREATE ORDER & SIMULATE PAYMENT (DUMMY RAZORPAYX)
 export const createOrder = async (req, res) => {
   const { amount, creditsPurchased } = req.body;
@@ -317,6 +315,10 @@ export const createOrder = async (req, res) => {
     });
     await order.save();
 
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5174';
+    const successUrl = `${frontendUrl}/studio`;
+    const failureUrl = `${frontendUrl}`;
+
     // Create Razorpay payment link
     const razorpay = new Razorpay({
       key_id: process.env.RAZORPAY_KEY_ID,
@@ -327,8 +329,14 @@ export const createOrder = async (req, res) => {
       currency: "INR",
       reference_id: order._id.toString(),
       description: `Purchase ${creditsPurchased} credits`,
-      callback_url: "http://localhost:5000/api/user/payment/callback",
-      callback_method: "get"
+      callback_url: successUrl,
+      callback_method: "get",
+      options: {
+        checkout: {
+          success_url: successUrl,
+          failure_url: failureUrl
+        }
+      }
     });
 
     return res.json({
@@ -373,19 +381,14 @@ export const handlePaymentCallback = async (req, res) => {
 
     if (!isSignatureValid) {
       console.error("Invalid Razorpay signature");
-      return res.json({
-        success: false,
-        message: "Invalid payment signature"
-      });
+      // Redirect to pricing page with error message
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5174'}/pricing?status=failed&reason=invalid_signature`);
     }
 
     // Verify the payment status
     if (razorpay_payment_link_status !== 'paid') {
-      return res.json({
-        success: false,
-        message: "Payment failed or pending",
-        status: razorpay_payment_link_status
-      });
+      // Redirect to pricing page with payment status
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5174'}/pricing?status=failed&reason=${razorpay_payment_link_status}`);
     }
 
     // Find the order using the reference_id (which should be your order ID)
@@ -394,20 +397,14 @@ export const handlePaymentCallback = async (req, res) => {
     
     if (!order) {
       console.error("Order not found:", orderId);
-      return res.json({
-        success: false,
-        message: "Order not found",
-        orderId
-      });
+      // Redirect to pricing page with error message
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5174'}/pricing?status=failed&reason=order_not_found`);
     }
 
     // Check if payment is already processed (idempotency)
     if (order.status === "completed") {
-      return res.json({
-        success: true,
-        message: "Payment already processed",
-        order,
-      });
+      // If already processed, still redirect to success
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5174'}/studio?status=success&orderId=${order._id}`);
     }
 
     // Update order status
@@ -437,13 +434,141 @@ export const handlePaymentCallback = async (req, res) => {
     });
     await transaction.save();
 
-    // Redirect to frontend with success message
-    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/success?orderId=${order._id}&status=success`);
+    // Redirect to studio page on successful payment
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5174'}/studio?status=success&orderId=${order._id}`);
 
   } catch (error) {
     console.error("Payment callback error:", error);
-    // Redirect to frontend with error message
-    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/failed?error=${encodeURIComponent(error.message)}`);
+    // Redirect to pricing page with error message
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5174'}/pricing?status=failed&reason=${encodeURIComponent(error.message)}`);
+  }
+};
+
+// VERIFY PAYMENT AFTER CALLBACK
+export const verifyPayment = async (req, res) => {
+  try {
+    console.log("Verifying payment - request body:", req.body);
+    
+    const {
+      paymentId,
+      paymentLinkId,
+      referenceId,
+      paymentStatus,
+      signature
+    } = req.body;
+    
+    // Check all required fields
+    if (!paymentId || !paymentLinkId || !referenceId || !paymentStatus || !signature) {
+      console.error("Missing required payment verification fields");
+      return res.status(400).json({
+        success: false,
+        message: "Missing required payment fields"
+      });
+    }
+    
+    // Verify signature
+    const text = `${paymentLinkId}|${referenceId}|${paymentStatus}|${paymentId}`;
+    const generated_signature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(text)
+      .digest("hex");
+    
+    const isSignatureValid = generated_signature === signature;
+    console.log("Signature validation:", { 
+      valid: isSignatureValid, 
+      provided: signature.substring(0, 10) + "...", 
+      generated: generated_signature.substring(0, 10) + "..." 
+    });
+
+    if (!isSignatureValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment signature"
+      });
+    }
+
+    // Find the order using the reference_id
+    console.log("Looking for order with ID:", referenceId);
+    const order = await Order.findById(referenceId);
+    
+    if (!order) {
+      console.error("Order not found:", referenceId);
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
+    console.log("Found order:", { 
+      id: order._id.toString(), 
+      user: order.user.toString(),
+      status: order.status,
+      amount: order.amount,
+      creditsPurchased: order.creditsPurchased
+    });
+
+    // If payment already processed, return success
+    if (order.status === "completed") {
+      console.log("Order already completed");
+      return res.json({
+        success: true,
+        message: "Payment already processed",
+        order
+      });
+    }
+
+    // Update order status
+    order.status = "completed";
+    order.paymentId = paymentId;
+    order.paymentLinkId = paymentLinkId;
+    order.updatedAt = new Date();
+    await order.save();
+    console.log("Order status updated to completed");
+
+    // Update or create wallet for the user
+    let wallet = await Wallet.findOne({ user: order.user });
+    if (!wallet) {
+      console.log("No wallet found, creating new wallet");
+      wallet = new Wallet({ user: order.user, balance: 0 });
+    }
+    
+    const previousBalance = wallet.balance;
+    wallet.balance += order.creditsPurchased;
+    wallet.updatedAt = new Date();
+    await wallet.save();
+    
+    console.log("Wallet updated:", {
+      user: wallet.user.toString(),
+      previousBalance,
+      newBalance: wallet.balance,
+      added: order.creditsPurchased
+    });
+
+    // Create a transaction record
+    const transaction = new Transaction({
+      user: order.user,
+      amount: order.creditsPurchased,
+      type: "credit",
+      description: `Order ${order._id} payment completed. ${order.creditsPurchased} credits added.`,
+      paymentId: paymentId,
+      orderId: order._id
+    });
+    await transaction.save();
+    console.log("Transaction record created:", transaction._id.toString());
+
+    return res.json({
+      success: true,
+      message: "Payment verified successfully",
+      order,
+      wallet
+    });
+  } catch (error) {
+    console.error("Payment verification error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
   }
 };
 

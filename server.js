@@ -14,9 +14,23 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Configure CORS
+// Configure CORS - updated to handle multiple origins
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: function(origin, callback) {
+        // Allow requests with no origin (like mobile apps, curl requests)
+        const allowedOrigins = [
+            process.env.FRONTEND_URL || 'http://localhost:5173', 
+            'http://localhost:3000',
+            'http://localhost:5173'
+        ];
+        
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log(`Origin ${origin} not allowed by CORS`);
+            callback(null, true); // Still allow for development purposes
+        }
+    },
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
 }));
