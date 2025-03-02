@@ -6,6 +6,9 @@ import bcrypt from 'bcrypt';
  */
 export const checkBcrypt = async (req, res, next) => {
   try {
+    // Log bcrypt version if available
+    console.log('Using bcrypt version:', bcrypt.version || 'unknown');
+    
     // Try to hash a simple string
     const hash = await bcrypt.hash('test', 10);
     const compare = await bcrypt.compare('test', hash);

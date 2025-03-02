@@ -6,3 +6,7 @@ build:
       value: "production"
     - key: NODE_OPTIONS
       value: "--max_old_space_size=2048"
+    - key: SKIP_BCRYPT_BINARY_DOWNLOAD
+      value: "false"
+    - key: NPM_CONFIG_BUILD_FROM_SOURCE
+      value: "true"

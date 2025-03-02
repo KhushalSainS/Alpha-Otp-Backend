@@ -7,6 +7,7 @@ import apiRouter from "./routes/apiRoutes.js";
 import otpRouter from "./routes/otpRoutes.js";
 import directApiRouter from "./routes/directApiRoutes.js";
 import mongoose from 'mongoose';
+import { checkBcrypt } from "./middleware/bcryptCheck.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -43,25 +44,11 @@ app.use((req, res, next) => {
     next();
 });
 
-// Check if bcrypt is working properly in a safer way
-(async () => {
-  try {
-    const bcrypt = await import('bcrypt');
-    // Verify bcrypt is actually working
-    const testHash = await bcrypt.default.hash('test', 1);
-    console.log('bcrypt loaded and working successfully!');
-  } catch (error) {
-    console.error('Error with bcrypt:', error);
-    // Continue app execution even if bcrypt has issues
-  }
-})();
+// Add bcrypt check to all authentication routes
+app.use("/api/user", checkBcrypt, userRouter);
 
-// IMPORTANT: Order matters here - most specific routes first
-// Direct API access route must come before the general /api route
+// Other routes don't need bcrypt checking
 app.use("/api/:apiKey([a-f0-9]{32})", directApiRouter);
-
-// Regular API routes
-app.use("/api/user", userRouter);
 app.use("/api/otp", otpRouter);
 app.use("/api", apiRouter);
 
